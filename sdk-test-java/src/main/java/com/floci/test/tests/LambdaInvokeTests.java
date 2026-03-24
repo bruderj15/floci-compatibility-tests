@@ -1,0 +1,104 @@
+package com.floci.test.tests;
+
+import com.floci.test.TestContext;
+import com.floci.test.TestGroup;
+import software.amazon.awssdk.core.SdkBytes;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
+import software.amazon.awssdk.services.lambda.LambdaClient;
+import software.amazon.awssdk.services.lambda.model.*;
+import software.amazon.awssdk.services.lambda.model.Runtime;
+
+import java.time.Duration;
+
+public class LambdaInvokeTests implements TestGroup {
+
+    @Override
+    public String name() { return "lambda-invoke"; }
+
+    @Override
+    public void run(TestContext ctx) {
+        System.out.println("--- Lambda Invoke (RequestResponse) Tests ---");
+        System.out.println("  NOTE: first invocation may pull Docker image — this can take a minute.");
+
+        try (LambdaClient lambda = LambdaClient.builder()
+                .endpointOverride(ctx.endpoint)
+                .region(ctx.region)
+                .credentialsProvider(ctx.credentials)
+                .overrideConfiguration(ClientOverrideConfiguration.builder()
+                        .apiCallTimeout(Duration.ofMinutes(5))
+                        .apiCallAttemptTimeout(Duration.ofMinutes(5))
+                        .build())
+                .build()) {
+
+            String functionName = "sdk-invoke-fn";
+            String role = "arn:aws:iam::000000000000:role/lambda-role";
+
+            // Create function
+            try {
+                lambda.createFunction(CreateFunctionRequest.builder()
+                        .functionName(functionName)
+                        .runtime(Runtime.NODEJS20_X)
+                        .role(role)
+                        .handler("index.handler")
+                        .timeout(30)
+                        .memorySize(256)
+                        .code(FunctionCode.builder()
+                                .zipFile(SdkBytes.fromByteArray(LambdaUtils.handlerZip()))
+                                .build())
+                        .build());
+                ctx.check("Lambda Invoke: CreateFunction", true);
+            } catch (Exception e) {
+                ctx.check("Lambda Invoke: CreateFunction", false, e);
+                return;
+            }
+
+            // 1. RequestResponse — echo event back
+            try {
+                System.out.println("  (cold start — waiting for container...)");
+                InvokeResponse resp = lambda.invoke(InvokeRequest.builder()
+                        .functionName(functionName)
+                        .invocationType(InvocationType.REQUEST_RESPONSE)
+                        .payload(SdkBytes.fromUtf8String("{\"name\":\"Floci\"}"))
+                        .build());
+
+                String payload = resp.payload().asUtf8String();
+                System.out.println("  Response payload: " + payload);
+
+                boolean ok = resp.statusCode() == 200
+                        && resp.functionError() == null
+                        && payload.contains("Hello, Floci!");
+                ctx.check("Lambda Invoke: RequestResponse", ok);
+            } catch (Exception e) {
+                ctx.check("Lambda Invoke: RequestResponse", false, e);
+            }
+
+            // 2. Second invocation (warm container)
+            try {
+                InvokeResponse resp = lambda.invoke(InvokeRequest.builder()
+                        .functionName(functionName)
+                        .invocationType(InvocationType.REQUEST_RESPONSE)
+                        .payload(SdkBytes.fromUtf8String("{\"name\":\"World\"}"))
+                        .build());
+
+                String payload = resp.payload().asUtf8String();
+                System.out.println("  Warm response payload: " + payload);
+
+                boolean ok = resp.statusCode() == 200
+                        && resp.functionError() == null
+                        && payload.contains("Hello, World!");
+                ctx.check("Lambda Invoke: RequestResponse (warm)", ok);
+            } catch (Exception e) {
+                ctx.check("Lambda Invoke: RequestResponse (warm)", false, e);
+            }
+
+            // 3. Cleanup
+            try {
+                lambda.deleteFunction(DeleteFunctionRequest.builder()
+                        .functionName(functionName).build());
+                ctx.check("Lambda Invoke: DeleteFunction", true);
+            } catch (Exception e) {
+                ctx.check("Lambda Invoke: DeleteFunction", false, e);
+            }
+        }
+    }
+}
