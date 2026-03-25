@@ -36,6 +36,29 @@ public class LambdaUtils {
     }
 
     /**
+     * ZIP containing a Ruby handler that greets by name.
+     */
+    public static byte[] rubyZip() {
+        String code = """
+                def lambda_handler(event:, context:)
+                  name = event['name'] || 'World'
+                  { statusCode: 200, body: "Hello, #{name}!" }
+                end
+                """;
+        try {
+            var baos = new java.io.ByteArrayOutputStream();
+            try (var zos = new java.util.zip.ZipOutputStream(baos)) {
+                zos.putNextEntry(new java.util.zip.ZipEntry("lambda_function.rb"));
+                zos.write(code.getBytes(StandardCharsets.UTF_8));
+                zos.closeEntry();
+            }
+            return baos.toByteArray();
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to build Ruby ZIP", e);
+        }
+    }
+
+    /**
      * Minimal valid ZIP containing a stub {@code index.js} — accepted by the emulator
      * without needing a real runtime.
      */

@@ -149,6 +149,54 @@ public class S3AdvancedTests implements TestGroup {
                 ctx.check("S3 Virtual Host Addressing (Filter implemented)", true);
             } catch (Exception e) { ctx.check("S3 Virtual Host Addressing", false, e); }
 
+            // 11. PutObject with storage class and user metadata
+            try {
+                s3.putObject(PutObjectRequest.builder()
+                        .bucket(bucket).key("meta-file.txt")
+                        .storageClass(StorageClass.STANDARD_IA)
+                        .metadata(java.util.Map.of("owner", "team-a", "env", "test"))
+                        .build(), RequestBody.fromString("metadata content"));
+                HeadObjectResponse head = s3.headObject(b -> b.bucket(bucket).key("meta-file.txt"));
+                ctx.check("S3 PutObject storage class",
+                        StorageClass.STANDARD_IA.equals(head.storageClass()));
+                ctx.check("S3 PutObject user metadata",
+                        "team-a".equals(head.metadata().get("owner"))
+                        && "test".equals(head.metadata().get("env")));
+            } catch (Exception e) { ctx.check("S3 PutObject storage class", false, e); }
+
+            // 12. GetObjectAttributes
+            try {
+                s3.putObject(PutObjectRequest.builder()
+                        .bucket(bucket).key("attrs-file.txt").build(),
+                        RequestBody.fromString("attributes content"));
+                GetObjectAttributesResponse attrs = s3.getObjectAttributes(
+                        GetObjectAttributesRequest.builder()
+                                .bucket(bucket).key("attrs-file.txt")
+                                .objectAttributes(ObjectAttributes.E_TAG, ObjectAttributes.OBJECT_SIZE)
+                                .build());
+                ctx.check("S3 GetObjectAttributes",
+                        attrs.eTag() != null && attrs.objectSize() == 18L);
+            } catch (Exception e) { ctx.check("S3 GetObjectAttributes", false, e); }
+
+            // 13. CopyObject with REPLACE metadata directive
+            try {
+                s3.putObject(PutObjectRequest.builder()
+                        .bucket(bucket).key("original.txt")
+                        .metadata(java.util.Map.of("owner", "source")).build(),
+                        RequestBody.fromString("original content"));
+                s3.copyObject(CopyObjectRequest.builder()
+                        .sourceBucket(bucket).sourceKey("original.txt")
+                        .destinationBucket(bucket).destinationKey("replaced.txt")
+                        .metadataDirective(MetadataDirective.REPLACE)
+                        .metadata(java.util.Map.of("owner", "dest"))
+                        .contentType("application/json")
+                        .build());
+                HeadObjectResponse head = s3.headObject(b -> b.bucket(bucket).key("replaced.txt"));
+                ctx.check("S3 CopyObject REPLACE metadata",
+                        "dest".equals(head.metadata().get("owner"))
+                        && "application/json".equals(head.contentType()));
+            } catch (Exception e) { ctx.check("S3 CopyObject REPLACE metadata", false, e); }
+
             // Cleanup
             try {
                 ListObjectsV2Response list = s3.listObjectsV2(b -> b.bucket(bucket));

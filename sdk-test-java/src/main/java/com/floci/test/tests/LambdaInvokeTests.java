@@ -99,6 +99,50 @@ public class LambdaInvokeTests implements TestGroup {
             } catch (Exception e) {
                 ctx.check("Lambda Invoke: DeleteFunction", false, e);
             }
+
+            // Ruby runtime invocation
+            String rubyFn = "sdk-invoke-ruby-fn";
+            try {
+                lambda.createFunction(CreateFunctionRequest.builder()
+                        .functionName(rubyFn)
+                        .runtime(Runtime.RUBY3_3)
+                        .role(role)
+                        .handler("lambda_function.lambda_handler")
+                        .timeout(30)
+                        .memorySize(256)
+                        .code(FunctionCode.builder()
+                                .zipFile(SdkBytes.fromByteArray(LambdaUtils.rubyZip()))
+                                .build())
+                        .build());
+                ctx.check("Lambda Ruby Invoke: CreateFunction", true);
+            } catch (Exception e) {
+                ctx.check("Lambda Ruby Invoke: CreateFunction", false, e);
+                return;
+            }
+
+            try {
+                System.out.println("  (Ruby cold start — waiting for container...)");
+                InvokeResponse resp = lambda.invoke(InvokeRequest.builder()
+                        .functionName(rubyFn)
+                        .invocationType(InvocationType.REQUEST_RESPONSE)
+                        .payload(SdkBytes.fromUtf8String("{\"name\":\"Floci\"}"))
+                        .build());
+
+                String payload = resp.payload().asUtf8String();
+                System.out.println("  Ruby response payload: " + payload);
+
+                boolean ok = resp.statusCode() == 200
+                        && resp.functionError() == null
+                        && payload.contains("Hello, Floci!");
+                ctx.check("Lambda Ruby Invoke: RequestResponse", ok);
+            } catch (Exception e) {
+                ctx.check("Lambda Ruby Invoke: RequestResponse", false, e);
+            }
+
+            try {
+                lambda.deleteFunction(DeleteFunctionRequest.builder()
+                        .functionName(rubyFn).build());
+            } catch (Exception ignored) {}
         }
     }
 }

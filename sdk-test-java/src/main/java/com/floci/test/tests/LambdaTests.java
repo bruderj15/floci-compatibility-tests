@@ -161,6 +161,30 @@ public class LambdaTests implements TestGroup {
             } catch (Exception e) {
                 ctx.check("Lambda DeleteFunction", false, e);
             }
+
+            // 11. Ruby runtime support
+            String rubyFn = "sdk-test-ruby-fn";
+            try {
+                CreateFunctionResponse rubyResp = lambda.createFunction(CreateFunctionRequest.builder()
+                        .functionName(rubyFn)
+                        .runtime(Runtime.RUBY3_3)
+                        .role(role)
+                        .handler("lambda_function.lambda_handler")
+                        .code(FunctionCode.builder()
+                                .zipFile(SdkBytes.fromByteArray(LambdaUtils.rubyZip()))
+                                .build())
+                        .build());
+                ctx.check("Lambda Ruby runtime (ruby3.3) CreateFunction",
+                        rubyFn.equals(rubyResp.functionName())
+                        && Runtime.RUBY3_3.equals(rubyResp.runtime()));
+            } catch (Exception e) {
+                ctx.check("Lambda Ruby runtime (ruby3.3) CreateFunction", false, e);
+            }
+
+            try {
+                lambda.deleteFunction(DeleteFunctionRequest.builder()
+                        .functionName(rubyFn).build());
+            } catch (Exception ignored) {}
         }
     }
 }
